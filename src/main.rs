@@ -1,7 +1,10 @@
 use day01::day01_part_1;
 use day01::day01_part_2;
+use day02::day02_part_1;
+use day02::day02_part_2;
 
 pub mod day01;
+pub mod day02;
 
 fn read(path: &str) -> String {
     std::fs::read_to_string(path)
@@ -30,4 +33,6 @@ fn execute<T: std::fmt::Display + std::fmt::Debug + PartialEq>(
 fn main() {
     execute(1, 1, day01_part_1, Some(55488));
     execute(1, 2, day01_part_2, Some(55614));
+    execute(2, 1, day02_part_1, Some(2149));
+    execute(2, 2, day02_part_2, Some(71274));
 }
