@@ -1,9 +1,9 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 type Coord = (i32, i32);
 type PartNumValue = i32;
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 enum SchematicItem {
     Blank,
     PartNumber { num: PartNumValue, len: i32 },
@@ -49,6 +49,19 @@ impl Schematic {
         false
     }
 
+    fn part_numbers_fill_map(&mut self) {
+        let mut map_filled = self.map.clone();
+        for (coord, item) in self.map.iter() {
+            if let SchematicItem::PartNumber { len, .. } = item {
+                for i in 1..*len {
+                    let coord_new: Coord = (coord.0 + i, coord.1);
+                    map_filled.insert(coord_new, *item);
+                }
+            }
+        }
+        self.map = map_filled;
+    }
+
     fn adjacent_part_numbers(&self, coord: Coord) -> Vec<i32> {
         let mut result: Vec<i32> = Vec::new();
         let offsets: [Coord; 8] = [
@@ -62,19 +75,13 @@ impl Schematic {
             (-1, -1), // Top-left
         ];
 
-        // Unfortunately I decided to make it so part numbers don't exist in the map at all spots,
-        // so the most straightforwarrd way to find adjacent part numbers is to flip the question
-        // on its head and check each part number for an adjacent gear:
-        'parts: for (part_coord, item) in self.map.iter() {
-            if let SchematicItem::PartNumber { num, len } = item {
-                for i in 0..*len {
-                    for offset in offsets {
-                        let coord_checking = (part_coord.0 + i + offset.0, part_coord.1 + offset.1);
-                        if coord_checking == coord {
-                            result.push(*num);
-                            continue 'parts;
-                        }
-                    }
+        let mut numbers_seen: HashSet<PartNumValue> = HashSet::new();
+        for offset in offsets {
+            let coord_checking = (coord.0 + offset.0, coord.1 + offset.1);
+            if let Some(SchematicItem::PartNumber { num, .. }) = self.map.get(&coord_checking) {
+                if numbers_seen.get(num).is_none() {
+                    result.push(*num);
+                    numbers_seen.insert(*num);
                 }
             }
         }
@@ -124,7 +131,8 @@ impl Schematic {
         }
     }
 
-    fn sum_gear_ratios(&self) -> i32 {
+    fn sum_gear_ratios(&mut self) -> i32 {
+        self.part_numbers_fill_map();
         self.map.keys().map(|coord| self.gear_ratio(*coord)).sum()
     }
 
