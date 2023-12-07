@@ -6,11 +6,14 @@ use day03::day03_part_1;
 use day03::day03_part_2;
 use day04::day04_part_1;
 use day04::day04_part_2;
+use day05::day05_part_1;
+use day05::day05_part_2;
 
 pub mod day01;
 pub mod day02;
 pub mod day03;
 pub mod day04;
+pub mod day05;
 
 fn read(path: &str) -> String {
     std::fs::read_to_string(path)
@@ -45,4 +48,6 @@ fn main() {
     execute(3, 2, day03_part_2, Some(75220503));
     execute(4, 1, day04_part_1, Some(17782));
     execute(4, 2, day04_part_2, Some(8477787));
+    execute(5, 1, day05_part_1, Some(551761867));
+    execute(5, 2, day05_part_2, Some(57451709));
 }
