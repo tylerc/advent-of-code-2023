@@ -61,15 +61,34 @@ pub fn day06_part_2(input: &str) -> i64 {
         .parse()
         .expect("Expected a valid distance number.");
 
-    let mut ways_to_win = 0;
+    /*
+     * p = pressed time
+     * d = distance_needed
+     * t = time total
+     * p * (t - p) > d
+     * pt - p^2 > d
+     * Unfortunately my math skills are failing me here, but this seems like a reasonable enough
+     * algorithm:
+     */
+    let mut start_winning_at = 0;
     for time_pressed in 1..time {
         let distance_moved = time_pressed * (time - time_pressed);
         if distance_moved > distance {
-            ways_to_win += 1;
+            start_winning_at = time_pressed;
+            break;
         }
     }
 
-    ways_to_win
+    let mut last_win_at = 0;
+    for time_pressed in (1..time).rev() {
+        let distance_moved = time_pressed * (time - time_pressed);
+        if distance_moved > distance {
+            last_win_at = time_pressed;
+            break;
+        }
+    }
+
+    last_win_at - start_winning_at + 1
 }
 
 #[cfg(test)]
