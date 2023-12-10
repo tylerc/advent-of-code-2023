@@ -44,8 +44,23 @@ fn execute<T: std::fmt::Display + std::fmt::Debug + PartialEq>(
     expected: Option<T>,
 ) {
     let input = read(&format!("./src/day{:0>2}.txt", day));
+    let start = std::time::Instant::now();
     let result = func(&input);
-    println!("Day {} - Part {}: {}", day, part, result);
+    let elapsed = start.elapsed();
+    let elapsed_str = if elapsed.as_nanos() < 1000 {
+        format!("{}ns", elapsed.as_nanos())
+    } else if elapsed.as_micros() < 1000 {
+        format!("{}µs", elapsed.as_micros())
+    } else if elapsed.as_millis() < 60000 {
+        format!("{}ms", elapsed.as_millis())
+    } else {
+        format!("{:.2}s", elapsed.as_secs_f64())
+    };
+
+    println!(
+        "| Day {:>2} | Part {} | {:>16} | {:>8} |",
+        day, part, result, elapsed_str
+    );
     match expected {
         None => {}
         Some(expected) => {
@@ -55,6 +70,7 @@ fn execute<T: std::fmt::Display + std::fmt::Debug + PartialEq>(
 }
 
 fn main() {
+    println!("+--------+--------+------------------+----------+");
     execute(1, 1, day01_part_1, Some(55488));
     execute(1, 2, day01_part_2, Some(55614));
     execute(2, 1, day02_part_1, Some(2149));
@@ -75,4 +91,5 @@ fn main() {
     execute(9, 2, day09_part_2, Some(1152));
     execute(10, 1, day10_part_1, Some(6806));
     execute(10, 2, day10_part_2, Some(449));
+    println!("+--------+--------+------------------+----------+");
 }
