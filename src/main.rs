@@ -33,6 +33,7 @@ pub mod day08;
 pub mod day09;
 pub mod day10;
 pub mod day11;
+pub mod fnv1;
 
 fn read(path: &str) -> String {
     std::fs::read_to_string(path)

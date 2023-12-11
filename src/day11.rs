@@ -1,4 +1,6 @@
-use std::collections::HashMap;
+use std::collections::HashSet;
+
+use crate::fnv1::BuildFnv1Hasher;
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, Debug)]
 struct Pos {
@@ -7,91 +9,94 @@ struct Pos {
 }
 
 impl Pos {
-    fn add(&self, other: &Pos) -> Pos {
-        Pos {
-            row: self.row + other.row,
-            col: self.col + other.col,
-        }
-    }
-
     fn distance(&self, other: &Pos) -> i64 {
         (self.row - other.row).abs() + (self.col - other.col).abs()
     }
 }
 
-type Galaxies = HashMap<Pos, bool>;
+struct Galaxies {
+    set: HashSet<Pos, BuildFnv1Hasher>,
+    rows_populated: HashSet<i64, BuildFnv1Hasher>,
+    cols_populated: HashSet<i64, BuildFnv1Hasher>,
+    row_max: i64,
+    col_max: i64,
+}
+
+impl Galaxies {
+    fn new(capacity: usize) -> Galaxies {
+        Galaxies {
+            set: HashSet::with_capacity_and_hasher(capacity, BuildFnv1Hasher),
+            rows_populated: HashSet::with_capacity_and_hasher(capacity / 2, BuildFnv1Hasher),
+            cols_populated: HashSet::with_capacity_and_hasher(capacity / 2, BuildFnv1Hasher),
+            row_max: 0,
+            col_max: 0,
+        }
+    }
+
+    fn insert(&mut self, pos: Pos) {
+        self.set.insert(pos);
+        self.rows_populated.insert(pos.row);
+        self.cols_populated.insert(pos.col);
+        if pos.row > self.row_max {
+            self.row_max = pos.row;
+        }
+        if pos.col > self.col_max {
+            self.col_max = pos.col;
+        }
+    }
+
+    fn is_row_empty(&self, row: &i64) -> bool {
+        !self.rows_populated.contains(row)
+    }
+
+    fn is_col_empty(&self, col: &i64) -> bool {
+        !self.cols_populated.contains(col)
+    }
+
+    fn max(&self) -> Pos {
+        Pos {
+            row: self.row_max,
+            col: self.col_max,
+        }
+    }
+}
 
 fn map_parse(input: &str) -> Galaxies {
-    let mut result: Galaxies = HashMap::new();
+    let mut result = Galaxies::new(450);
 
     for (row, line) in input.split('\n').enumerate() {
         for (col, char) in line.chars().enumerate() {
-            let pos = Pos {
-                row: row as i64,
-                col: col as i64,
-            };
-            match char {
-                '.' => result.insert(pos, false),
-                '#' => result.insert(pos, true),
-                _ => unreachable!("Unexpected character: {}", char),
-            };
+            if char == '#' {
+                let pos = Pos {
+                    row: row as i64,
+                    col: col as i64,
+                };
+                result.insert(pos);
+            }
         }
     }
 
     result
 }
 
-fn is_empty(map: &Galaxies, start: Pos, end: Pos, offset: Pos) -> bool {
-    let mut current = start;
-    while current != end.add(&offset) {
-        if let Some(is_galaxy) = map.get(&current) {
-            if *is_galaxy {
-                return false;
-            }
-        }
-
-        current = current.add(&offset);
-    }
-    true
-}
-
 #[allow(unused_variables, clippy::let_unit_value)]
 fn map_expand(map: &Galaxies, expansion: i64) -> Galaxies {
-    let mut expanded_columns: Galaxies = HashMap::new();
-    let max = map
-        .keys()
-        .max()
-        .expect("Expected to find maximum coordinates.");
+    let mut expanded_columns: Galaxies = Galaxies::new(map.set.len());
+    let max = map.max();
     let mut col_dst: i64 = 0;
     for col_src in 0..=max.col {
-        if is_empty(
-            map,
-            Pos {
-                row: 0,
-                col: col_src,
-            },
-            Pos {
-                row: max.row,
-                col: col_src,
-            },
-            Pos { row: 1, col: 0 },
-        ) {
+        if map.is_col_empty(&col_src) {
             col_dst += expansion;
         } else {
-            for (row_dst, row_src) in (0_i64..).zip(0..=max.row) {
-                if let Some(galaxy_or_space) = map.get(&Pos {
-                    row: row_src,
-                    col: col_src,
-                }) {
-                    expanded_columns.insert(
-                        Pos {
-                            row: row_dst,
-                            col: col_dst,
-                        },
-                        *galaxy_or_space,
-                    );
+            for pos_src in map.set.iter() {
+                if pos_src.col == col_src {
+                    expanded_columns.insert(Pos {
+                        row: pos_src.row,
+                        col: col_dst,
+                    })
                 }
             }
+
             col_dst += 1;
         }
     }
@@ -105,35 +110,18 @@ fn map_expand(map: &Galaxies, expansion: i64) -> Galaxies {
     let col_dst = ();
     let map = ();
 
-    let mut expanded_rows: Galaxies = HashMap::new();
+    let mut expanded_rows: Galaxies = Galaxies::new(expanded_columns.set.len());
     let mut row_dst: i64 = 0;
     for row_src in 0..=max.row {
-        if is_empty(
-            &expanded_columns,
-            Pos {
-                row: row_src,
-                col: 0,
-            },
-            Pos {
-                row: row_src,
-                col: max.col,
-            },
-            Pos { row: 0, col: 1 },
-        ) {
+        if expanded_columns.is_row_empty(&row_src) {
             row_dst += expansion;
         } else {
-            for (col_dst, col_src) in (0_i64..).zip(0..=max.col) {
-                if let Some(galaxy_or_space) = expanded_columns.get(&Pos {
-                    row: row_src,
-                    col: col_src,
-                }) {
-                    expanded_rows.insert(
-                        Pos {
-                            row: row_dst,
-                            col: col_dst,
-                        },
-                        *galaxy_or_space,
-                    );
+            for pos_src in expanded_columns.set.iter() {
+                if pos_src.row == row_src {
+                    expanded_rows.insert(Pos {
+                        row: row_dst,
+                        col: pos_src.col,
+                    })
                 }
             }
             row_dst += 1;
@@ -145,11 +133,7 @@ fn map_expand(map: &Galaxies, expansion: i64) -> Galaxies {
 
 fn map_sum_distance_pairs(map: &Galaxies) -> i64 {
     let mut result = 0;
-    let galaxies: Vec<_> = map
-        .iter()
-        .filter(|(_, is_galaxy)| **is_galaxy)
-        .map(|(pos, _)| pos)
-        .collect();
+    let galaxies: Vec<_> = map.set.iter().collect();
 
     for (i, galaxy_a) in galaxies.iter().enumerate() {
         for galaxy_b in galaxies.iter().skip(i + 1) {
@@ -162,13 +146,14 @@ fn map_sum_distance_pairs(map: &Galaxies) -> i64 {
 
 #[allow(dead_code)]
 fn map_print(map: &Galaxies) {
-    let max = map.keys().max().expect("Expected to find max coordinate.");
+    let max = map.max();
     for row in 0..=max.row {
         for col in 0..=max.col {
-            let char = map
-                .get(&Pos { row, col })
-                .map(|is_galaxy| if *is_galaxy { '#' } else { '.' })
-                .unwrap_or('*');
+            let char = if map.set.get(&Pos { row, col }).is_some() {
+                '#'
+            } else {
+                '.'
+            };
             print!("{}", char);
         }
         println!();
