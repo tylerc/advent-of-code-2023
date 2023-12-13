@@ -1,19 +1,25 @@
 use std::collections::HashMap;
 
+const KNOWN_GOOD: u8 = 46; // ASCII .
+const KNOWN_BAD: u8 = 35; // ASCII #
+const UNKNOWN: u8 = 63; // ASCII ?
+
 #[derive(PartialEq, Eq, Hash, Clone, Copy)]
 enum RecursionState {
     Continue,
-    NeedHash(i64),
+    NeedHash(RecordInt),
 }
 
-type CacheMap<'a> = HashMap<(&'a [char], &'a [i64], RecursionState), i64>;
+type SpringType = u8;
+type RecordInt = u8;
+type CacheMap<'a> = HashMap<(&'a [SpringType], &'a [RecordInt], RecursionState), u64>;
 
 fn recurse_arrangements_memoized<'a>(
-    springs: &'a [char],
-    records: &'a [i64],
+    springs: &'a [SpringType],
+    records: &'a [RecordInt],
     state: RecursionState,
     cache: &mut CacheMap<'a>,
-) -> i64 {
+) -> u64 {
     let key = (springs, records, state);
     if let Some(result) = cache.get(&key) {
         *result
@@ -25,11 +31,11 @@ fn recurse_arrangements_memoized<'a>(
 }
 
 fn recurse_arrangements<'a>(
-    springs: &'a [char],
-    records: &'a [i64],
+    springs: &'a [SpringType],
+    records: &'a [RecordInt],
     state: RecursionState,
     cache: &mut CacheMap<'a>,
-) -> i64 {
+) -> u64 {
     use RecursionState::*;
 
     match state {
@@ -41,7 +47,7 @@ fn recurse_arrangements<'a>(
             }
 
             match springs[0] {
-                '?' => {
+                UNKNOWN => {
                     let arrangements_when_placing = if records.is_empty() {
                         0
                     } else {
@@ -57,8 +63,10 @@ fn recurse_arrangements<'a>(
 
                     arrangements_when_placing + arrangements_when_not_placing
                 }
-                '.' => recurse_arrangements_memoized(&springs[1..], records, Continue, cache),
-                '#' => {
+                KNOWN_GOOD => {
+                    recurse_arrangements_memoized(&springs[1..], records, Continue, cache)
+                }
+                KNOWN_BAD => {
                     if records.is_empty() {
                         0
                     } else {
@@ -70,7 +78,7 @@ fn recurse_arrangements<'a>(
                         )
                     }
                 }
-                unknown => unreachable!("Encountered unexpected char: {}", unknown),
+                bad => unreachable!("Unexpected character: {}", bad),
             }
         }
         NeedHash(placing) => {
@@ -82,12 +90,12 @@ fn recurse_arrangements<'a>(
                     } else {
                         0
                     }
-                } else if springs[0] == '#' {
+                } else if springs[0] == KNOWN_BAD {
                     0
                 } else {
                     recurse_arrangements_memoized(&springs[1..], records, Continue, cache)
                 }
-            } else if springs.is_empty() || springs[0] == '.' {
+            } else if springs.is_empty() || springs[0] == KNOWN_GOOD {
                 0
             } else {
                 recurse_arrangements_memoized(&springs[1..], records, NeedHash(placing - 1), cache)
@@ -96,31 +104,35 @@ fn recurse_arrangements<'a>(
     }
 }
 
-pub fn day12_part_1(input: &str) -> i64 {
-    let mut result: i64 = 0;
+pub fn day12_part_1(input: &str) -> u64 {
+    let mut result: u64 = 0;
 
     for line in input.split('\n') {
         let mut cache: CacheMap = HashMap::new();
         let split: Vec<_> = line.split(' ').collect();
-        let springs: Vec<char> = split[0].chars().collect();
-        let records: Vec<i64> = split[1]
+        let records: Vec<RecordInt> = split[1]
             .split(',')
             .map(|item| item.parse().expect("Records should be parseable."))
             .collect();
-        result += recurse_arrangements(&springs, &records, RecursionState::Continue, &mut cache)
+        result += recurse_arrangements(
+            split[0].as_bytes(),
+            &records,
+            RecursionState::Continue,
+            &mut cache,
+        )
     }
 
     result
 }
 
-pub fn day12_part_2(input: &str) -> i64 {
+pub fn day12_part_2(input: &str) -> u64 {
     use std::sync::mpsc::{channel, Receiver, Sender};
     use std::thread;
 
     let thread_count = 16;
-    let mut result: i64 = 0;
+    let mut result: u64 = 0;
 
-    let (transmit_results, receive_results) = channel::<i64>();
+    let (transmit_results, receive_results) = channel::<u64>();
     let mut transmit_work: Vec<Sender<String>> = Vec::new();
     let mut receive_work: Vec<Receiver<String>> = Vec::new();
 
@@ -149,15 +161,14 @@ pub fn day12_part_2(input: &str) -> i64 {
                     records += split[1];
                 }
 
-                let springs: Vec<char> = springs.chars().collect();
-                let records: Vec<i64> = records
+                let records: Vec<RecordInt> = records
                     .split(',')
                     .map(|item| item.parse().expect("Records should be parseable."))
                     .collect();
 
                 transmit_results
                     .send(recurse_arrangements(
-                        &springs,
+                        springs.as_bytes(),
                         &records,
                         RecursionState::Continue,
                         &mut cache,
