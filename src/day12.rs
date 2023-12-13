@@ -1,28 +1,20 @@
 use std::collections::HashMap;
 
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
 enum RecursionState {
     Continue,
-    NeedDot,
     NeedHash(i64),
 }
 
-fn recurse_arrangements_memoized(
-    springs: &[char],
-    records: &[i64],
-    state: RecursionState,
-    cache: &mut HashMap<Vec<i64>, i64>,
-) -> i64 {
-    let mut key: Vec<i64> = springs.iter().map(|c| *c as i64).collect();
-    for record in records.iter() {
-        key.push(*record);
-    }
-    use RecursionState::*;
-    key.push(match state {
-        Continue => -1,
-        NeedDot => -2,
-        NeedHash(amount) => amount,
-    });
+type CacheMap<'a> = HashMap<(&'a [char], &'a [i64], RecursionState), i64>;
 
+fn recurse_arrangements_memoized<'a>(
+    springs: &'a [char],
+    records: &'a [i64],
+    state: RecursionState,
+    cache: &mut CacheMap<'a>,
+) -> i64 {
+    let key = (springs, records, state);
     if let Some(result) = cache.get(&key) {
         *result
     } else {
@@ -32,11 +24,11 @@ fn recurse_arrangements_memoized(
     }
 }
 
-fn recurse_arrangements(
-    springs: &[char],
-    records: &[i64],
+fn recurse_arrangements<'a>(
+    springs: &'a [char],
+    records: &'a [i64],
     state: RecursionState,
-    cache: &mut HashMap<Vec<i64>, i64>,
+    cache: &mut CacheMap<'a>,
 ) -> i64 {
     use RecursionState::*;
 
@@ -81,22 +73,21 @@ fn recurse_arrangements(
                 unknown => unreachable!("Encountered unexpected char: {}", unknown),
             }
         }
-        NeedDot => {
-            if springs.is_empty() {
-                if records.is_empty() {
-                    1
-                } else {
-                    0
-                }
-            } else if springs[0] == '#' {
-                0
-            } else {
-                recurse_arrangements_memoized(&springs[1..], records, Continue, cache)
-            }
-        }
-        NeedHash(0) => recurse_arrangements_memoized(springs, records, NeedDot, cache),
         NeedHash(placing) => {
-            if springs.is_empty() || springs[0] == '.' {
+            // If we're out of items to place, we need to find a dot or the end of the input:
+            if placing == 0 {
+                if springs.is_empty() {
+                    if records.is_empty() {
+                        1
+                    } else {
+                        0
+                    }
+                } else if springs[0] == '#' {
+                    0
+                } else {
+                    recurse_arrangements_memoized(&springs[1..], records, Continue, cache)
+                }
+            } else if springs.is_empty() || springs[0] == '.' {
                 0
             } else {
                 recurse_arrangements_memoized(&springs[1..], records, NeedHash(placing - 1), cache)
@@ -107,9 +98,9 @@ fn recurse_arrangements(
 
 pub fn day12_part_1(input: &str) -> i64 {
     let mut result: i64 = 0;
-    let mut cache: HashMap<Vec<i64>, i64> = HashMap::new();
 
     for line in input.split('\n') {
+        let mut cache: CacheMap = HashMap::new();
         let split: Vec<_> = line.split(' ').collect();
         let springs: Vec<char> = split[0].chars().collect();
         let records: Vec<i64> = split[1]
@@ -123,31 +114,69 @@ pub fn day12_part_1(input: &str) -> i64 {
 }
 
 pub fn day12_part_2(input: &str) -> i64 {
+    use std::sync::mpsc::{channel, Receiver, Sender};
+    use std::thread;
+
+    let thread_count = 16;
     let mut result: i64 = 0;
-    let mut cache: HashMap<Vec<i64>, i64> = HashMap::new();
 
-    for line in input.split('\n') {
-        let split: Vec<_> = line.split(' ').collect();
-        let mut springs: String = String::new();
-        let mut records: String = String::new();
-        for i in 0..5 {
-            springs += split[0];
-            if i != 4 {
-                springs += "?";
+    let (transmit_results, receive_results) = channel::<i64>();
+    let mut transmit_work: Vec<Sender<String>> = Vec::new();
+    let mut receive_work: Vec<Receiver<String>> = Vec::new();
+
+    for _ in 0..thread_count {
+        let (tx, rx) = channel::<String>();
+        transmit_work.push(tx);
+        receive_work.push(rx);
+    }
+
+    for receiver in receive_work {
+        let transmit_results = transmit_results.clone();
+        thread::spawn(move || {
+            while let Ok(line) = receiver.recv() {
+                let mut cache: CacheMap = HashMap::new();
+                let split: Vec<_> = line.split(' ').collect();
+                let mut springs: String = String::new();
+                let mut records: String = String::new();
+                for i in 0..5 {
+                    springs += split[0];
+                    if i != 4 {
+                        springs += "?";
+                    }
+                    if !records.is_empty() {
+                        records += ",";
+                    }
+                    records += split[1];
+                }
+
+                let springs: Vec<char> = springs.chars().collect();
+                let records: Vec<i64> = records
+                    .split(',')
+                    .map(|item| item.parse().expect("Records should be parseable."))
+                    .collect();
+
+                transmit_results
+                    .send(recurse_arrangements(
+                        &springs,
+                        &records,
+                        RecursionState::Continue,
+                        &mut cache,
+                    ))
+                    .expect("Results should be sent successfully.");
             }
-            if !records.is_empty() {
-                records += ",";
-            }
-            records += split[1];
-        }
+        });
+    }
+    drop(transmit_results);
 
-        let springs: Vec<char> = springs.chars().collect();
-        let records: Vec<i64> = records
-            .split(',')
-            .map(|item| item.parse().expect("Records should be parseable."))
-            .collect();
+    for (index, line) in input.split('\n').enumerate() {
+        transmit_work[index % thread_count]
+            .send(line.to_owned())
+            .expect("Work should be sent successfully.");
+    }
 
-        result += recurse_arrangements(&springs, &records, RecursionState::Continue, &mut cache);
+    drop(transmit_work);
+    while let Ok(answer) = receive_results.recv() {
+        result += answer;
     }
 
     result
