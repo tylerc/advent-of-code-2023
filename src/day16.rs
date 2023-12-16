@@ -6,13 +6,12 @@ enum Mirror {
     Horizontal,
     Vertical,
 }
-use std::collections::HashSet;
 
 use Mirror::*;
 
 struct Contraption {
     grid: Vec<Mirror>,
-    energized: Vec<bool>,
+    energized: Vec<u8>,
     rows: usize,
     cols: usize,
 }
@@ -26,7 +25,7 @@ struct Pos {
 impl Contraption {
     fn new(input: &str) -> Contraption {
         let mut grid: Vec<Mirror> = Vec::new();
-        let mut energized: Vec<bool> = Vec::new();
+        let mut energized: Vec<u8> = Vec::new();
         let mut rows = 0;
         let mut cols = 0;
 
@@ -40,7 +39,7 @@ impl Contraption {
                     '|' => Vertical,
                     unknown => unreachable!("Encountered unexpected character: {}", unknown),
                 });
-                energized.push(false);
+                energized.push(0);
 
                 if col > cols {
                     cols = col;
@@ -68,28 +67,38 @@ impl Contraption {
         self.grid[pos.row as usize * self.rows + pos.col as usize]
     }
 
-    fn energize(&mut self, pos: Pos) {
-        self.energized[pos.row as usize * self.rows + pos.col as usize] = true;
+    fn energize(&mut self, pos: Pos, direction: Pos) -> bool {
+        let index = pos.row as usize * self.rows + pos.col as usize;
+        let bits = match direction {
+            Pos { row: 1, col: 0 } => 0b1,
+            Pos { row: -1, col: 0 } => 0b10,
+            Pos { row: 0, col: 1 } => 0b100,
+            Pos { row: 0, col: -1 } => 0b1000,
+            unexpected => unreachable!("Unexpected direction energized {:?}", unexpected),
+        };
+        let existing = self.energized[index];
+        if existing & bits > 0 {
+            return true;
+        }
+
+        self.energized[index] = existing | bits;
+        false
     }
 
     fn simulate_beams(&mut self, start_location: Pos, start_direction: Pos) -> usize {
         let mut queue = vec![(start_location, start_direction)];
-        let mut seen: HashSet<(Pos, Pos)> = HashSet::new();
-        self.energized = vec![false; self.energized.len()];
+        self.energized = vec![0; self.energized.len()];
 
         while let Some((pos, direction)) = queue.pop() {
-            if seen.contains(&(pos, direction)) {
-                continue;
-            }
-
-            seen.insert((pos, direction));
-
             if pos.row >= 0
                 && pos.col >= 0
                 && pos.row < self.rows as i64
                 && pos.col < self.cols as i64
             {
-                self.energize(pos);
+                let seen = self.energize(pos, direction);
+                if seen {
+                    continue;
+                }
             }
 
             let pos = Pos {
@@ -201,7 +210,7 @@ impl Contraption {
     fn energized_total(&self) -> usize {
         self.energized
             .iter()
-            .fold(0, |accum, item| if *item { accum + 1 } else { accum })
+            .fold(0, |accum, item| if *item > 0 { accum + 1 } else { accum })
     }
 
     #[allow(dead_code)]
@@ -232,13 +241,7 @@ impl Contraption {
                 println!();
             }
 
-            print!(
-                "{}",
-                match is_energized {
-                    true => '#',
-                    false => '.',
-                }
-            );
+            print!("{}", if *is_energized > 0 { '#' } else { '.' });
         }
         println!("\n");
     }
