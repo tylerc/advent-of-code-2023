@@ -39,6 +39,8 @@ use crate::day19::day19_part_1;
 use crate::day19::day19_part_2;
 use crate::day20::day20_part_1;
 use crate::day20::day20_part_2;
+use crate::day21::day21_part_1;
+use crate::day21::day21_part_2;
 
 pub mod day01;
 pub mod day02;
@@ -60,6 +62,7 @@ pub mod day17;
 pub mod day18;
 pub mod day19;
 pub mod day20;
+pub mod day21;
 pub mod fnv1;
 
 fn read(path: &str) -> String {
@@ -143,5 +146,7 @@ fn main() {
     execute(19, 2, day19_part_2, Some(125455345557345));
     execute(20, 1, day20_part_1, Some(841763884));
     execute(20, 2, day20_part_2, Some(246006621493687));
+    execute(21, 1, day21_part_1, Some(3733));
+    execute(21, 2, day21_part_2, Some(617729401414635f64));
     println!("+--------+--------+------------------+----------+");
 }
