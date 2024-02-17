@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-type BrickId = u64;
+use crate::fnv1::BuildFnv1Hasher;
+
+type BrickId = usize;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 struct Pos {
@@ -25,20 +27,37 @@ impl Pos {
             z: coords[2],
         }
     }
+
+    fn update_max(&mut self, other: &Pos) {
+        if other.x > self.x {
+            self.x = other.x;
+        }
+        if other.y > self.y {
+            self.y = other.y;
+        }
+        if other.z > self.z {
+            self.z = other.z;
+        }
+    }
 }
 
 #[derive(Clone)]
 struct World {
-    pos_to_id: HashMap<Pos, BrickId>,
-    id_to_pos: HashMap<BrickId, Vec<Pos>>,
+    pos_to_id: Vec<Option<BrickId>>,
+    id_to_pos: Vec<Vec<Pos>>,
     max_brick_id: BrickId,
+    height: i64,
+    width: i64,
+    depth: i64,
 }
 
 impl World {
     fn new(input: &str) -> World {
         let mut id: BrickId = 0;
-        let mut pos_to_id: HashMap<Pos, BrickId> = HashMap::new();
-        let mut id_to_pos: HashMap<BrickId, Vec<Pos>> = HashMap::new();
+        let mut pos_to_id: HashMap<Pos, BrickId, BuildFnv1Hasher> =
+            HashMap::with_hasher(BuildFnv1Hasher);
+        let mut id_to_pos: Vec<Vec<Pos>> = Vec::new();
+        let mut max = Pos { x: 0, y: 0, z: 0 };
 
         for line in input.split('\n') {
             let mut split = line.split('~');
@@ -50,6 +69,9 @@ impl World {
                 .expect("Expected to find right-hand coordinate.");
             let start = Pos::new(start_str);
             let end = Pos::new(end_str);
+            max.update_max(&start);
+            max.update_max(&end);
+
             let mut current = start;
             let step = Pos {
                 x: if end.x > start.x { 1 } else { 0 },
@@ -69,27 +91,41 @@ impl World {
                 pos_list.push(current);
             }
 
-            id_to_pos.insert(id, pos_list);
+            id_to_pos.push(pos_list);
 
             id += 1;
         }
 
+        max.x += 1;
+        max.y += 1;
+        max.z += 1;
+        let mut pos_to_id_vec = vec![None; (max.x * max.y * max.z) as usize];
+        for (pos, id) in pos_to_id {
+            pos_to_id_vec[World::pos_to_index_explicit(max.x, max.y, &pos)] = Some(id);
+        }
+
         World {
-            pos_to_id,
+            pos_to_id: pos_to_id_vec,
             id_to_pos,
             max_brick_id: id - 1,
+            width: max.x,
+            height: max.y,
+            depth: max.z,
         }
+    }
+
+    fn pos_to_index(&self, pos: &Pos) -> usize {
+        (pos.x + self.height * (pos.y + self.width * pos.z)) as usize
+    }
+
+    fn pos_to_index_explicit(width: i64, height: i64, pos: &Pos) -> usize {
+        (pos.x + height * (pos.y + width * pos.z)) as usize
     }
 
     fn can_fall(&self, brick_id: BrickId) -> bool {
         let mut saw_brick_id = false;
 
-        for pos in self
-            .id_to_pos
-            .get(&brick_id)
-            .expect("Expected to find list of positions to fall test.")
-            .iter()
-        {
+        for pos in self.id_to_pos[brick_id].iter() {
             saw_brick_id = true;
 
             let pos_below = Pos {
@@ -100,8 +136,8 @@ impl World {
             if pos_below.z <= 0 {
                 return false;
             }
-            if let Some(below_brick_id) = self.pos_to_id.get(&pos_below) {
-                if *below_brick_id != brick_id {
+            if let Some(below_brick_id) = self.pos_to_id[self.pos_to_index(&pos_below)] {
+                if below_brick_id != brick_id {
                     return false;
                 }
             }
@@ -111,27 +147,20 @@ impl World {
     }
 
     fn fall(&mut self, brick_id: BrickId) {
-        let old_positions: Vec<Pos> = std::mem::take(
-            self.id_to_pos
-                .get_mut(&brick_id)
-                .expect("Expected to find list of positions to fall (1)."),
-        );
-        let new_positions = self
-            .id_to_pos
-            .get_mut(&brick_id)
-            .expect("Expected to find list of positions to fall (2).");
+        let positions = &mut self.id_to_pos[brick_id];
 
-        for pos in old_positions.iter() {
-            self.pos_to_id.remove(pos);
+        for pos in positions.iter() {
+            self.pos_to_id[World::pos_to_index_explicit(self.width, self.height, pos)] = None;
         }
-        for pos in old_positions.iter() {
+        for pos in positions.iter_mut() {
             let new_pos = Pos {
                 x: pos.x,
                 y: pos.y,
                 z: pos.z - 1,
             };
-            self.pos_to_id.insert(new_pos, brick_id);
-            new_positions.push(new_pos);
+            self.pos_to_id[World::pos_to_index_explicit(self.width, self.height, &new_pos)] =
+                Some(brick_id);
+            *pos = new_pos;
         }
     }
 
@@ -139,7 +168,7 @@ impl World {
         loop {
             let mut moved = false;
             for id in 0..=self.max_brick_id {
-                if self.can_fall(id) {
+                while self.can_fall(id) {
                     self.fall(id);
                     moved = true;
                 }
@@ -151,13 +180,10 @@ impl World {
     }
 
     fn remove_brick(&mut self, brick_id: BrickId) {
-        let old_positions = std::mem::take(
-            self.id_to_pos
-                .get_mut(&brick_id)
-                .expect("Expected to find bricks to remove."),
-        );
+        let old_positions = std::mem::take(&mut self.id_to_pos[brick_id]);
         for pos in old_positions {
-            self.pos_to_id.remove(&pos);
+            let index = self.pos_to_index(&pos);
+            self.pos_to_id[index] = None;
         }
     }
 
@@ -183,9 +209,9 @@ impl World {
         alternate_reality.fall_until_settled();
 
         let mut moved: i64 = 0;
-        'outer: for (id, pos_list) in alternate_reality.id_to_pos.iter() {
+        'outer: for (id, pos_list) in alternate_reality.id_to_pos.iter().enumerate() {
             for pos in pos_list {
-                if let Some(orig_brick_id) = self.pos_to_id.get(pos) {
+                if let Some(orig_brick_id) = self.pos_to_id[self.pos_to_index(pos)] {
                     if orig_brick_id != id {
                         moved += 1;
                         continue 'outer;
@@ -202,28 +228,12 @@ impl World {
 
     #[allow(dead_code)]
     fn print(&self) {
-        let mut min = Pos { x: 0, y: 0, z: 0 };
-        let mut max = Pos { x: 0, y: 0, z: 0 };
-        for pos in self.pos_to_id.keys() {
-            if pos.x < min.x {
-                min.x = pos.x;
-            }
-            if pos.x > max.x {
-                max.x = pos.x;
-            }
-            if pos.y < min.y {
-                min.y = pos.y;
-            }
-            if pos.y > max.y {
-                max.y = pos.y;
-            }
-            if pos.z < min.z {
-                min.z = pos.z;
-            }
-            if pos.z > max.z {
-                max.z = pos.z;
-            }
-        }
+        let min = Pos { x: 0, y: 0, z: 0 };
+        let max = Pos {
+            x: self.width - 1,
+            y: self.height - 1,
+            z: self.depth - 1,
+        };
 
         println!("min: {:?} max: {:?}", min, max);
 
@@ -235,8 +245,8 @@ impl World {
             for x in min.x..=max.x {
                 let mut found: Vec<BrickId> = Vec::new();
                 for y in min.y..=max.y {
-                    if let Some(brick_id) = self.pos_to_id.get(&Pos { x, y, z }) {
-                        found.push(*brick_id);
+                    if let Some(brick_id) = self.pos_to_id[self.pos_to_index(&Pos { x, y, z })] {
+                        found.push(brick_id);
                     }
                 }
 
@@ -265,8 +275,8 @@ impl World {
             for y in min.y..=max.y {
                 let mut found: Vec<BrickId> = Vec::new();
                 for x in min.x..=max.x {
-                    if let Some(brick_id) = self.pos_to_id.get(&Pos { x, y, z }) {
-                        found.push(*brick_id);
+                    if let Some(brick_id) = self.pos_to_id[self.pos_to_index(&Pos { x, y, z })] {
+                        found.push(brick_id);
                     }
                 }
 

@@ -15,6 +15,7 @@ impl std::hash::Hasher for Fnv1Hasher {
     }
 }
 
+#[derive(Clone)]
 pub struct BuildFnv1Hasher;
 
 impl std::hash::BuildHasher for BuildFnv1Hasher {
