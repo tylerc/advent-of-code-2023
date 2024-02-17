@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 type BrickId = u64;
 
@@ -27,60 +27,69 @@ impl Pos {
     }
 }
 
-fn str_to_cubes(input: &str) -> (BrickId, HashMap<Pos, BrickId>) {
-    let mut id: BrickId = 0;
-    let mut result: HashMap<Pos, BrickId> = HashMap::new();
+#[derive(Clone)]
+struct World {
+    pos_to_id: HashMap<Pos, BrickId>,
+    id_to_pos: HashMap<BrickId, Vec<Pos>>,
+    max_brick_id: BrickId,
+}
 
-    for line in input.split('\n') {
-        let mut split = line.split('~');
-        let start_str = split
-            .next()
-            .expect("Expected to find left-hand coordinate.");
-        let end_str = split
-            .next()
-            .expect("Expected to find right-hand coordinate.");
-        let start = Pos::new(start_str);
-        let end = Pos::new(end_str);
-        let mut current = start;
-        let step = Pos {
-            x: if end.x > start.x { 1 } else { 0 },
-            y: if end.y > start.y { 1 } else { 0 },
-            z: if end.z > start.z { 1 } else { 0 },
-        };
-        result.insert(start, id);
-        while current != end {
-            current = Pos {
-                x: current.x + step.x,
-                y: current.y + step.y,
-                z: current.z + step.z,
+impl World {
+    fn new(input: &str) -> World {
+        let mut id: BrickId = 0;
+        let mut pos_to_id: HashMap<Pos, BrickId> = HashMap::new();
+        let mut id_to_pos: HashMap<BrickId, Vec<Pos>> = HashMap::new();
+
+        for line in input.split('\n') {
+            let mut split = line.split('~');
+            let start_str = split
+                .next()
+                .expect("Expected to find left-hand coordinate.");
+            let end_str = split
+                .next()
+                .expect("Expected to find right-hand coordinate.");
+            let start = Pos::new(start_str);
+            let end = Pos::new(end_str);
+            let mut current = start;
+            let step = Pos {
+                x: if end.x > start.x { 1 } else { 0 },
+                y: if end.y > start.y { 1 } else { 0 },
+                z: if end.z > start.z { 1 } else { 0 },
             };
-            result.insert(current, id);
+            let mut pos_list: Vec<Pos> = Vec::new();
+            pos_to_id.insert(start, id);
+            pos_list.push(start);
+            while current != end {
+                current = Pos {
+                    x: current.x + step.x,
+                    y: current.y + step.y,
+                    z: current.z + step.z,
+                };
+                pos_to_id.insert(current, id);
+                pos_list.push(current);
+            }
+
+            id_to_pos.insert(id, pos_list);
+
+            id += 1;
         }
 
-        id += 1;
+        World {
+            pos_to_id,
+            id_to_pos,
+            max_brick_id: id - 1,
+        }
     }
 
-    (id - 1, result)
-}
-
-trait World {
-    fn can_fall(&self, brick_id: BrickId) -> bool;
-    fn fall(&mut self, brick_id: BrickId);
-    fn fall_until_settled(&mut self, max_brick_id: BrickId);
-    fn can_disintigrate(&self, brick_id: BrickId, max_brick_id: BrickId) -> bool;
-    fn count_disintigrate(&self, brick_id: BrickId, max_brick_id: BrickId) -> i64;
-    fn print(&self);
-}
-
-impl World for HashMap<Pos, BrickId> {
     fn can_fall(&self, brick_id: BrickId) -> bool {
         let mut saw_brick_id = false;
 
-        for (pos, other_brick_id) in self.iter() {
-            if *other_brick_id != brick_id {
-                continue;
-            }
-
+        for pos in self
+            .id_to_pos
+            .get(&brick_id)
+            .expect("Expected to find list of positions to fall test.")
+            .iter()
+        {
             saw_brick_id = true;
 
             let pos_below = Pos {
@@ -91,7 +100,7 @@ impl World for HashMap<Pos, BrickId> {
             if pos_below.z <= 0 {
                 return false;
             }
-            if let Some(below_brick_id) = self.get(&pos_below) {
+            if let Some(below_brick_id) = self.pos_to_id.get(&pos_below) {
                 if *below_brick_id != brick_id {
                     return false;
                 }
@@ -102,14 +111,18 @@ impl World for HashMap<Pos, BrickId> {
     }
 
     fn fall(&mut self, brick_id: BrickId) {
-        let old_positions: Vec<Pos> = self
-            .iter()
-            .filter(|(_, other_brick_id)| **other_brick_id == brick_id)
-            .map(|(pos, _)| *pos)
-            .collect();
+        let old_positions: Vec<Pos> = std::mem::take(
+            self.id_to_pos
+                .get_mut(&brick_id)
+                .expect("Expected to find list of positions to fall (1)."),
+        );
+        let new_positions = self
+            .id_to_pos
+            .get_mut(&brick_id)
+            .expect("Expected to find list of positions to fall (2).");
 
         for pos in old_positions.iter() {
-            self.remove(&pos);
+            self.pos_to_id.remove(pos);
         }
         for pos in old_positions.iter() {
             let new_pos = Pos {
@@ -117,14 +130,15 @@ impl World for HashMap<Pos, BrickId> {
                 y: pos.y,
                 z: pos.z - 1,
             };
-            self.insert(new_pos, brick_id);
+            self.pos_to_id.insert(new_pos, brick_id);
+            new_positions.push(new_pos);
         }
     }
 
-    fn fall_until_settled(&mut self, max_brick_id: BrickId) {
+    fn fall_until_settled(&mut self) {
         loop {
             let mut moved = false;
-            for id in 0..=max_brick_id {
+            for id in 0..=self.max_brick_id {
                 if self.can_fall(id) {
                     self.fall(id);
                     moved = true;
@@ -136,10 +150,21 @@ impl World for HashMap<Pos, BrickId> {
         }
     }
 
-    fn can_disintigrate(&self, brick_id: BrickId, max_brick_id: BrickId) -> bool {
+    fn remove_brick(&mut self, brick_id: BrickId) {
+        let old_positions = std::mem::take(
+            self.id_to_pos
+                .get_mut(&brick_id)
+                .expect("Expected to find bricks to remove."),
+        );
+        for pos in old_positions {
+            self.pos_to_id.remove(&pos);
+        }
+    }
+
+    fn can_disintigrate(&self, brick_id: BrickId) -> bool {
         let mut alternate_reality = self.clone();
-        alternate_reality.retain(|_, other_brick_id| brick_id != *other_brick_id);
-        for iter_id in 0..=max_brick_id {
+        alternate_reality.remove_brick(brick_id);
+        for iter_id in 0..=self.max_brick_id {
             if iter_id == brick_id {
                 continue;
             }
@@ -152,29 +177,34 @@ impl World for HashMap<Pos, BrickId> {
         true
     }
 
-    fn count_disintigrate(&self, brick_id: BrickId, max_brick_id: BrickId) -> i64 {
+    fn count_disintigrate(&self, brick_id: BrickId) -> i64 {
         let mut alternate_reality = self.clone();
-        alternate_reality.retain(|_, other_brick_id| brick_id != *other_brick_id);
-        alternate_reality.fall_until_settled(max_brick_id);
+        alternate_reality.remove_brick(brick_id);
+        alternate_reality.fall_until_settled();
 
-        let mut moved: HashSet<BrickId> = HashSet::new();
-        for (pos, alternate_reality_brick_id) in alternate_reality.iter() {
-            if let Some(orig_brick_id) = self.get(pos) {
-                if orig_brick_id != alternate_reality_brick_id {
-                    moved.insert(*alternate_reality_brick_id);
+        let mut moved: i64 = 0;
+        'outer: for (id, pos_list) in alternate_reality.id_to_pos.iter() {
+            for pos in pos_list {
+                if let Some(orig_brick_id) = self.pos_to_id.get(pos) {
+                    if orig_brick_id != id {
+                        moved += 1;
+                        continue 'outer;
+                    }
+                } else {
+                    moved += 1;
+                    continue 'outer;
                 }
-            } else {
-                moved.insert(*alternate_reality_brick_id);
             }
         }
 
-        moved.len() as i64
+        moved
     }
 
+    #[allow(dead_code)]
     fn print(&self) {
         let mut min = Pos { x: 0, y: 0, z: 0 };
         let mut max = Pos { x: 0, y: 0, z: 0 };
-        for pos in self.keys() {
+        for pos in self.pos_to_id.keys() {
             if pos.x < min.x {
                 min.x = pos.x;
             }
@@ -205,21 +235,21 @@ impl World for HashMap<Pos, BrickId> {
             for x in min.x..=max.x {
                 let mut found: Vec<BrickId> = Vec::new();
                 for y in min.y..=max.y {
-                    if let Some(brick_id) = self.get(&Pos { x, y, z }) {
+                    if let Some(brick_id) = self.pos_to_id.get(&Pos { x, y, z }) {
                         found.push(*brick_id);
                     }
                 }
 
-                if found.len() > 1 {
-                    print!("?");
-                } else if found.len() == 1 {
-                    print!(
-                        "{}",
-                        char::from_u32('A' as u32 + found[0] as u32)
-                            .expect("Char should be valid.")
-                    );
-                } else {
-                    print!(".");
+                match found.len() {
+                    0 => print!("."),
+                    1 => {
+                        print!(
+                            "{}",
+                            char::from_u32('A' as u32 + found[0] as u32)
+                                .expect("Char should be valid.")
+                        );
+                    }
+                    _ => print!("?"),
                 }
             }
             println!(" {}", z);
@@ -235,21 +265,21 @@ impl World for HashMap<Pos, BrickId> {
             for y in min.y..=max.y {
                 let mut found: Vec<BrickId> = Vec::new();
                 for x in min.x..=max.x {
-                    if let Some(brick_id) = self.get(&Pos { x, y, z }) {
+                    if let Some(brick_id) = self.pos_to_id.get(&Pos { x, y, z }) {
                         found.push(*brick_id);
                     }
                 }
 
-                if found.len() > 1 {
-                    print!("?");
-                } else if found.len() == 1 {
-                    print!(
-                        "{}",
-                        char::from_u32('A' as u32 + found[0] as u32)
-                            .expect("Char should be valid.")
-                    );
-                } else {
-                    print!(".");
+                match found.len() {
+                    0 => print!("."),
+                    1 => {
+                        print!(
+                            "{}",
+                            char::from_u32('A' as u32 + found[0] as u32)
+                                .expect("Char should be valid.")
+                        );
+                    }
+                    _ => print!("?"),
                 }
             }
             println!(" {}", z);
@@ -258,11 +288,11 @@ impl World for HashMap<Pos, BrickId> {
 }
 
 pub fn day22_part_1(input: &str) -> i64 {
-    let (max_id, mut bricks) = str_to_cubes(input);
-    bricks.fall_until_settled(max_id);
+    let mut bricks = World::new(input);
+    bricks.fall_until_settled();
     let mut result: i64 = 0;
-    for id in 0..=max_id {
-        if bricks.can_disintigrate(id, max_id) {
+    for id in 0..=bricks.max_brick_id {
+        if bricks.can_disintigrate(id) {
             result += 1;
         }
     }
@@ -270,11 +300,11 @@ pub fn day22_part_1(input: &str) -> i64 {
 }
 
 pub fn day22_part_2(input: &str) -> i64 {
-    let (max_id, mut bricks) = str_to_cubes(input);
-    bricks.fall_until_settled(max_id);
+    let mut bricks = World::new(input);
+    bricks.fall_until_settled();
     let mut result: i64 = 0;
-    for id in 0..=max_id {
-        result += bricks.count_disintigrate(id, max_id);
+    for id in 0..=bricks.max_brick_id {
+        result += bricks.count_disintigrate(id);
     }
     result
 }
